@@ -11,14 +11,16 @@ namespace ExtractorOrchestrator
     {
         [FunctionName("Orchestrator")]
         public static async Task<List<string>> RunOrchestrator(
-            [OrchestrationTrigger] DurableOrchestrationContext context, string postBody)
+            [OrchestrationTrigger] DurableOrchestrationContext context)
         {
-            var outputs = new List<string>
-            {
-                await context.CallActivityAsync<string>("Orchestrator_Hello", "Tokyo"),
-                await context.CallActivityAsync<string>("Orchestrator_Hello", "Seattle"),
-                await context.CallActivityAsync<string>("Orchestrator_Hello", "London")
-            };
+            var outputs = new List<string>();
+            var postBody = context.GetInput<string>();
+
+            await context.CallActivityAsync<string>("Orchestrator_Create_ACI_Group", context.InstanceId);
+            await context.CallActivityAsync<string>("Orchestrator_Call_Into_Container", postBody);
+            await context.WaitForExternalEvent("Extractor_Finished");
+            await context.CallActivityAsync<string>("Orchestrator_Delete_ACI_Group", "");
+            
 
             // Replace "hello" with the name of your Durable Activity Function.
 
@@ -26,8 +28,22 @@ namespace ExtractorOrchestrator
             return outputs;
         }
 
-        [FunctionName("Orchestrator_Hello")]
+        [FunctionName("Orchestrator_Create_ACI_Group")]
         public static string SayHello([ActivityTrigger] string name, ILogger log)
+        {
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Orchestrator_Call_Into_Container")]
+        public static string SayHello2([ActivityTrigger] string name, ILogger log)
+        {
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Orchestrator_Delete_ACI_Group")]
+        public static string SayHello3([ActivityTrigger] string name, ILogger log)
         {
             log.LogInformation($"Saying hello to {name}.");
             return $"Hello {name}!";
