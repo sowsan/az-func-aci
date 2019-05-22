@@ -15,6 +15,21 @@ namespace ExtractorOrchestrator
 {
     public static class Orchestrator
     {
+
+        [FunctionName("Orchestrator_HttpStart")]
+        public static async Task<HttpResponseMessage> HttpStart(
+           [HttpTrigger(AuthorizationLevel.Anonymous, "post")]HttpRequestMessage req,
+           [OrchestrationClient]DurableOrchestrationClient starter,
+           ILogger log)
+        {
+            // Function input comes from the request content.
+            string instanceId = await starter.StartNewAsync("Orchestrator", await req.Content.ReadAsStringAsync());
+
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+
         [FunctionName("Orchestrator")]
         public static async Task<List<string>> RunOrchestrator(
             [OrchestrationTrigger] DurableOrchestrationContext context)
@@ -23,13 +38,13 @@ namespace ExtractorOrchestrator
             var postBody = context.GetInput<string>();
 
             //This should return url for the api
-            var ipAddress = await context.CallActivityAsync<string>("Orchestrator_Create_ACI_Group", ("testshop",context.InstanceId));
-            //this returns nothing?
+            var ipAddress = await context.CallActivityAsync<string>("Orchestrator_Create_ACI_Group", ("customer1",context.InstanceId));           
+            // This activity function calls into the container. scenarios could be check some status, or do something specifically by calling out api endpoint 
             await context.CallActivityAsync<string>("Orchestrator_Call_Into_Container", (ipAddress,postBody));
-            //Return Boolean
-            await context.WaitForExternalEvent("Extractor_Finished");
-            //This returns nothing
-            await context.CallActivityAsync<string>("Orchestrator_Delete_ACI_Group", "testshop");
+            //Return Boolean, this will be invoked from the ACI container once its done with its job
+            await context.WaitForExternalEvent("Job_Finished");
+            //This activition function delete the ACI group once its done with its job
+            await context.CallActivityAsync<string>("Orchestrator_Delete_ACI_Group", "customer1");
             
 
             // Replace "hello" with the name of your Durable Activity Function.
@@ -44,7 +59,7 @@ namespace ExtractorOrchestrator
             var creds = new AzureCredentialsFactory().FromServicePrincipal(Environment.GetEnvironmentVariable("client"), Environment.GetEnvironmentVariable("key"), Environment.GetEnvironmentVariable("tenant"), AzureEnvironment.AzureGlobalCloud);
             var azure = Azure.Authenticate(creds).WithSubscription(Environment.GetEnvironmentVariable("subscriptionId"));
 
-            return CreateContainerGroup(azure, "extractortest", "extractor"+args.Item1, Environment.GetEnvironmentVariable("d"), args.Item2);
+            return CreateContainerGroup(azure, "azure-poc-rg", "extractor"+args.Item1, Environment.GetEnvironmentVariable("d"), args.Item2);
         }
 
         /// <summary>
@@ -107,7 +122,7 @@ namespace ExtractorOrchestrator
         {
             var creds = new AzureCredentialsFactory().FromServicePrincipal(Environment.GetEnvironmentVariable("client"), Environment.GetEnvironmentVariable("key"), Environment.GetEnvironmentVariable("tenant"), AzureEnvironment.AzureGlobalCloud);
             var azure = Azure.Authenticate(creds).WithSubscription(Environment.GetEnvironmentVariable("subscriptionId"));
-            DeleteContainerGroup(azure, "extractortest", "extractor" + name);
+            DeleteContainerGroup(azure, "azure-poc-rg", "extractor" + name);
 
             log.LogInformation($"Saying hello to {name}.");
             return $"Hello {name}!";
@@ -135,18 +150,6 @@ namespace ExtractorOrchestrator
             azure.ContainerGroups.DeleteById(containerGroup.Id);
         }
 
-        [FunctionName("Orchestrator_HttpStart")]
-        public static async Task<HttpResponseMessage> HttpStart(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post")]HttpRequestMessage req,
-            [OrchestrationClient]DurableOrchestrationClient starter,
-            ILogger log)
-        {
-            // Function input comes from the request content.
-            string instanceId = await starter.StartNewAsync("Orchestrator", await req.Content.ReadAsStringAsync());
-
-            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
-
-            return starter.CreateCheckStatusResponse(req, instanceId);
-        }
+       
     }
 }
